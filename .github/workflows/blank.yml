@@ -1,0 +1,116 @@
+name: PC Enigmano - Moonlight RTX 3060 @ 120fps
+
+on:
+  workflow_dispatch:
+    inputs:
+      instance_number:
+        description: 'Instance Number (1-10)'
+        required: true
+        default: '1'
+        type: string
+
+jobs:
+  deploy-moonlight:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: System Information
+      run: |
+        Write-Host "=== ENIGMANO MOONLIGHT DEPLOYMENT ===" -ForegroundColor Green
+        Write-Host "Instance Number: ${{ github.event.inputs.instance_number }}" -ForegroundColor Yellow
+        Write-Host "Runner IP (Public): " -ForegroundColor Cyan
+        Invoke-RestMethod -Uri "https://api.ipify.org"
+
+    - name: Enable RDP
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+
+    - name: Create User Account
+      run: |
+        $Password = ConvertTo-SecureString "P@ssw0rd!" -AsPlainText -Force
+        Set-LocalUser -Name "runneradmin" -Password $Password
+        Add-LocalGroupMember -Group "Remote Desktop Users" -Member "runneradmin"
+
+    - name: RTX 3060 GPU SPOOFING + 120FPS NVENC
+      run: |
+        Write-Host "=== RTX 3060 SPOOFING + 120FPS ===" -ForegroundColor Cyan
+
+        # GPU SPOOFING no Registry
+        $gpuRegPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be2fd79}"
+        $subKeys = @("0000", "0001")
+        foreach ($sub in $subKeys) {
+            $fullPath = "$gpuRegPath\$sub"
+            if (-not (Test-Path $fullPath)) { New-Item -Path $fullPath -Force | Out-Null }
+            New-ItemProperty -Path $fullPath -Name "DriverDesc" -Value "NVIDIA GeForce RTX 3060" -PropertyType String -Force -ErrorAction SilentlyContinue
+            New-ItemProperty -Path $fullPath -Name "HardwareInformation.DeviceDesc" -Value "NVIDIA GeForce RTX 3060" -PropertyType String -Force -ErrorAction SilentlyContinue
+            New-ItemProperty -Path $fullPath -Name "FriendlyName" -Value "NVIDIA GeForce RTX 3060" -PropertyType String -Force -ErrorAction SilentlyContinue
+            New-ItemProperty -Path $fullPath -Name "ProviderName" -Value "NVIDIA" -PropertyType String -Force -ErrorAction SilentlyContinue
+            New-ItemProperty -Path $fullPath -Name "DeviceDesc" -Value "NVIDIA GeForce RTX 3060" -PropertyType String -Force -ErrorAction SilentlyContinue
+        }
+
+        # Forçar 120fps no display (registry)
+        $displayPath = "HKCU:\Control Panel\Desktop"
+        Set-ItemProperty -Path $displayPath -Name "MenuShowDelay" -Value "0" -ErrorAction SilentlyContinue
+
+        # NVENC 120fps - forçar refresh rate via registry
+        $nvPath = "HKLM:\SOFTWARE\NVIDIA Corporation\Global\NvTdr"
+        if (-not (Test-Path $nvPath)) { New-Item -Path $nvPath -Force | Out-Null }
+        New-ItemProperty -Path $nvPath -Name "NvMaxFrameRate" -Value "120" -PropertyType DWord -Force -ErrorAction SilentlyContinue
+
+        # Power plan - máximo desempenho
+        powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c | Out-Null
+        powercfg /setacvalueindex SCHEME_CURRENT SUB_PROCESS PERFFROMIN 100 | Out-Null
+        powercfg /setactive SCHEME_CURRENT | Out-Null
+
+        # Desativar throttling
+        Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling' -Name 'PowerThrottlingOff' -Value 1 -ErrorAction SilentlyContinue
+
+        Write-Host "RTX 3060 @ 120fps configurado." -ForegroundColor Green
+
+    - name: Open Moonlight Ports (47984 TCP/UDP + 3478 UDP)
+      run: |
+        Write-Host "Abrindo portas Moonlight..." -ForegroundColor Green
+        # Moonlight usa 47984 (TCP/UDP) e 3478 (UDP)
+        netsh advfirewall firewall add rule name="Moonlight TCP 47984" dir=in action=allow protocol=TCP localport=47984
+        netsh advfirewall firewall add rule name="Moonlight UDP 47984" dir=in action=allow protocol=UDP localport=47984
+        netsh advfirewall firewall add rule name="Moonlight UDP 3478" dir=in action=allow protocol=UDP localport=3478
+        netsh advfirewall firewall add rule name="Moonlight TCP 48010" dir=in action=allow protocol=TCP localport=48010
+        netsh advfirewall firewall add rule name="Moonlight UDP 48010" dir=in action=allow protocol=UDP localport=48010
+        Write-Host "Portas Moonlight abertas." -ForegroundColor Green
+
+    - name: Get Public IP
+      run: |
+        $pubIP = (Invoke-RestMethod -Uri "https://api.ipify.org").ToString()
+        Write-Host "Public IP: $pubIP" -ForegroundColor Green
+        echo "PUBLIC_IP=$pubIP" >> $env:GITHUB_ENV
+
+    - name: Connection Details
+      run: |
+        Write-Host "`n=== CONEXAO MOONLIGHT (UNICO IP) ===" -ForegroundColor Green
+        Write-Host "╔══════════════════════════════════════════╗" -ForegroundColor Cyan
+        Write-Host "║       ENIGMANO MOONLIGHT - RTX 3060   ║" -ForegroundColor Cyan
+        Write-Host "╠══════════════════════════════════════════╣" -ForegroundColor Cyan
+        Write-Host "║ IP: $env:PUBLIC_IP            ║" -ForegroundColor White
+        Write-Host "║ Portas: 47984 (TCP/UDP) + 3478 (UDP)  ║" -ForegroundColor White
+        Write-Host "║ FPS: 120                               ║" -ForegroundColor White
+        Write-Host "║ GPU: NVIDIA GeForce RTX 3060         ║" -ForegroundColor White
+        Write-Host "║ User: runneradmin                    ║" -ForegroundColor White
+        Write-Host "║ Pass: P@ssw0rd!                      ║" -ForegroundColor White
+        Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Cyan
+        Write-Host "`nNo app Moonlight: Add PC > digite o IP acima > autentique com runneradmin/P@ssw0rd!" -ForegroundColor Yellow
+
+    - name: Keep Session Alive
+      run: |
+        Write-Host "`n=== SESSAO MOONLIGHT ATIVA ===" -ForegroundColor Green
+        $counter = 0
+        while ($true) {
+          $counter++
+          Write-Host "Heartbeat #$counter - $(Get-Date) - IP: $env:PUBLIC_IP - 120fps" -ForegroundColor Green
+          Start-Sleep -Seconds 60
+        }
